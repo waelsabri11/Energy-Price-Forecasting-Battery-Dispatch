@@ -78,10 +78,10 @@ def stage_backtest(s: Settings | None = None) -> pd.DataFrame:
     p = _paths(s)
     feats = FeatureSchema.validate(pd.read_parquet(p["features"]))
     raw = load_raw(p["raw"])
-    pred = run_backtest(feats, raw)
+    pred = run_backtest(feats, raw, s.first_fold, s.calib_months)
     PredictionSchema.validate(pred)
     pred.to_parquet(p["pred"])
-    metrics = evaluate(pred)
+    metrics = evaluate(pred, s.eval_start)
     metrics.to_csv(p["metrics"])
     with tracking.run("backtest") as active:
         if active:
@@ -98,14 +98,20 @@ def stage_dispatch(s: Settings | None = None, batt: Battery | None = None) -> pd
     batt = batt or Battery()
     p = _paths(s)
     pred = PredictionSchema.validate(pd.read_parquet(p["pred"]))
-    daily, rho = run_dispatch_backtest(pred, batt, QCOLS, lambdas=(0.5, 0.9), seed=s.seed)
+    daily, rho_by_month = run_dispatch_backtest(
+        pred, batt, QCOLS, lambdas=(0.5, 0.9), seed=s.seed, eval_start=s.eval_start
+    )
     daily.to_parquet(p["daily"])
     summary = summarise(daily, batt)
     summary.to_csv(p["dispatch"])
-    p["meta"].write_text(json.dumps({"rho": rho, "n_days": len(daily), "battery": batt.__dict__}))
+    p["meta"].write_text(
+        json.dumps({"rho_by_month": rho_by_month, "n_days": len(daily), "battery": batt.__dict__})
+    )
     with tracking.run("dispatch") as active:
         if active:
-            mlflow.log_params({**batt.__dict__, "copula_rho": round(rho, 3)})
+            mlflow.log_params(
+                {**batt.__dict__, "copula_rho_mean": round(sum(rho_by_month.values()) / len(rho_by_month), 3)}
+            )
             for strat, row in summary.iterrows():
                 mlflow.log_metrics({f"{strat}.{k}": v for k, v in row.items()})
             mlflow.log_artifact(str(p["dispatch"]))
@@ -121,6 +127,7 @@ def stage_report(s: Settings | None = None) -> None:
     pred = pd.read_parquet(p["pred"])
 
     # forecast fan chart for a sample week
+    pred = pred[pred["fold"] >= pd.Timestamp(s.eval_start)]
     week = pred.loc[pred.index >= pred.index[len(pred) // 2]].iloc[: 24 * 7]
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.fill_between(week.index, week["c0.9_lo"], week["c0.9_hi"], alpha=0.2, label="90% (CQR)")

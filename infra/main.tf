@@ -181,7 +181,7 @@ resource "azurerm_container_app" "mlflow" {
   }
 
   ingress {
-    external_enabled = true
+    external_enabled = false # internal only: MLflow has no auth, reachable from inside the environment
     target_port      = 5000
     traffic_weight {
       latest_revision = true

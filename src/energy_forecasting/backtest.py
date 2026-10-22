@@ -28,10 +28,10 @@ def run_backtest(
     feats: pd.DataFrame,
     raw: pd.DataFrame,
     first_fold: str = "2024-07-01",
-    eval_start: str = "2025-01-01",
     calib_months: int = 3,
 ) -> pd.DataFrame:
-    """Return per-hour predictions for all folds from `first_fold` to the end of the data.
+    """Return per-hour predictions for all folds from `first_fold` to the end of the data
+    (burn-in folds included; metrics and dispatch only use folds >= the evaluation start).
 
     Fold m: fit on all rows with delivery date < m (their targets are known at m's first
     origin), predict month m. Conformal offsets for month m use only out-of-sample scores
@@ -78,16 +78,20 @@ def run_backtest(
     emp.columns = ["emp_" + c for c in emp.columns]
     out = out.join(emp)
     out["median"] = out["q0.50"]
-    return out[out["fold"] >= pd.Timestamp(eval_start)] if eval_start else out
+    return out
 
 
 def _interval_stats(y: np.ndarray, lo: np.ndarray, hi: np.ndarray) -> tuple[float, float]:
     return float(((y >= lo) & (y <= hi)).mean()), float((hi - lo).mean())
 
 
-def evaluate(pred: pd.DataFrame) -> pd.DataFrame:
+def evaluate(pred: pd.DataFrame, eval_start: str = "2025-01-01") -> pd.DataFrame:
     """Metrics table, one row per method (rows with complete data only)."""
-    p = pred.dropna(subset=["c0.8_lo", "emp_q0.50", "naive_week"]).copy()
+    p = (
+        pred[pred["fold"] >= pd.Timestamp(eval_start)]
+        .dropna(subset=["c0.8_lo", "emp_q0.50", "naive_week"])
+        .copy()
+    )
     y = p["y"].to_numpy()
     qs = np.array(QUANTILES)
     rows = []

@@ -28,7 +28,7 @@ flowchart LR
     INF --> OUT[forecast + schedule for D+1]
 ```
 
-Azure target (Terraform in [`infra/`](infra), **validated but never applied**): ACR, Key Vault (ENTSO-E key), Storage (Azure Files), PostgreSQL Flexible Server (MLflow DB), Container Apps environment with an MLflow app, a **daily Container Apps Job** running `energy infer` before gate closure, and a scale-to-zero read-only API.
+Azure target (Terraform in [`infra/`](infra), **validated but never applied**): ACR, Key Vault (ENTSO-E key), Storage (Azure Files), PostgreSQL Flexible Server (MLflow DB), Container Apps environment with an **internal-only** MLflow app (no authentication, so it is not exposed publicly), a **daily Container Apps Job** running `energy infer` before gate closure, and a scale-to-zero read-only API.
 
 ## Data
 
@@ -62,7 +62,7 @@ Azure target (Terraform in [`infra/`](infra), **validated but never applied**): 
 | QuantileGBM + CQR |    **17.31** |    6.60 | 13.20 |     0.80 |      54.60 |     0.89 |      72.09 |
 
 * The GBM cuts MAE by 36 % vs. the best naive baseline and CRPS by 39 % vs. the empirical-quantile baseline.
-* Raw quantiles are **over-confident** (66 % coverage for a nominal 80 % interval). CQR restores 79.5 % / 88.7 % coverage at the price of wider intervals — still ~30 % narrower than the empirical baseline at equal or better coverage.
+* Raw quantiles are **over-confident** (66 % coverage for a nominal 80 % interval). CQR restores 79.5 % / 88.7 % coverage at the price of wider intervals — still 25–30 % narrower than the empirical baseline (80 %: 54.6 vs 77.9; 90 %: 72.1 vs 96.0) at equal or better coverage.
 * 2026 is harder than 2025 (median MAE 20.7 vs. 14.6; price std 69 vs. 46 EUR/MWh), see `reports/results.md` and the MLflow runs.
 
 ![forecast](reports/figures/forecast_week.png)
@@ -76,7 +76,7 @@ LP per delivery day (cvxpy + HiGHS), 10 MW / 20 MWh battery, 90 % round-trip eff
 | `perfect_foresight` | LP on realised prices (upper bound) |
 | `naive_week` | LP on last week's prices |
 | `median` | LP on the forecast median |
-| `scenario_mean` | 50 price paths sampled from the quantiles (Gaussian AR(1) copula, ρ = 0.85 estimated from the PIT of the backtest), maximise expected revenue |
+| `scenario_mean` | 50 price paths sampled from the quantiles (Gaussian AR(1) copula, ρ ≈ 0.83–0.86, re-estimated each month from the PIT of earlier folds only, burn-in folds included), maximise expected revenue |
 | `cvar_λ` | same scenarios, maximise (1−λ)·E[R] + λ·CVaR₂₀%[R] (Rockafellar–Uryasev), λ ∈ {0.5, 0.9} |
 
 660 delivery days, 2025-01-01 → 2026-10-22:
@@ -86,14 +86,15 @@ LP per delivery day (cvxpy + HiGHS), 10 MW / 20 MWh battery, 90 % round-trip eff
 | perfect_foresight |        1,118.1 |          61,834 |                  100.0 |               504.7 |           948.1 |
 | naive_week        |          856.6 |          47,371 |                   76.6 |               164.0 |           916.1 |
 | median            |          983.3 |          54,381 |               **87.9** |               267.4 |           928.7 |
-| scenario_mean     |          983.0 |          54,361 |               **87.9** |               269.7 |           902.2 |
-| cvar_0.5          |          969.2 |          53,602 |                   86.7 |               277.0 |           890.0 |
-| cvar_0.9          |          943.8 |          52,196 |                   84.4 |               253.2 |           878.3 |
+| scenario_mean     |          987.5 |          54,614 |               **88.3** |               277.9 |           926.6 |
+| cvar_0.5          |          972.1 |          53,759 |                   86.9 |               275.9 |           913.9 |
+| cvar_0.9          |          945.0 |          52,262 |                   84.5 |               266.7 |           886.7 |
 
 Takeaways (honest reading):
 
 * The probabilistic model captures **87.9 %** of perfect-foresight revenue vs. 76.6 % for last-week prices (+11 pts).
-* With a battery that already cycles once or twice a day, using the *full distribution* does **not** raise expected revenue over the median schedule (87.9 % vs. 87.9 %): arbitrage depends mainly on the *ordering* of hours, which the median already gets right. CVaR shifts the trade-off (λ = 0.5: −1.2 pts of revenue for a better worst-5 % day, 277 vs. 267 EUR and lower daily std); λ = 0.9 over-hedges and loses on both counts.
+* Using the full distribution barely moves expected revenue: the scenario schedule gains 0.4 pt over the median schedule (88.3 % vs 87.9 %) and has a better worst-5 % day (278 vs 267 EUR). Arbitrage depends mainly on the *ordering* of hours, which the median already gets right.
+* CVaR trades revenue for a flatter distribution: λ = 0.5 gives 86.9 % (−1.4 pts vs. scenario_mean) with lower daily std (914 vs 927 EUR) but no better worst-5 % day (276 vs 278); λ = 0.9 over-hedges (84.5 %). In this backtest the risk-aware variants do not pay off.
 * Caveats: the LP has no mutual-exclusion constraint on charge/discharge; with perfect foresight 51 of 15,839 hours (0.3 %) charge and discharge simultaneously during negative prices, which slightly overstates the upper bound. Price-taker assumption (no market impact), no intraday/balancing revenue, no capacity or ancillary-service income, fixed efficiency and SoC bounds.
 
 ![dispatch](reports/figures/dispatch_cumulative.png)
@@ -123,6 +124,8 @@ Terraform (validate only — nothing is created):
 ```bash
 terraform -chdir=infra init -backend=false && terraform -chdir=infra validate
 ```
+
+Postgres is opened with the `0.0.0.0` firewall rule, which allows all Azure services: acceptable for a demo; production should use VNet integration / a private endpoint. The Terraform state contains secrets (ENTSO-E key, DB password): use a remote encrypted backend (e.g. an Azure Storage account with encryption and restricted access) rather than local state.
 
 Deploying would need `terraform apply -var subscription_id=… -var entsoe_api_key=… -var postgres_admin_password=…`, pushing the two images (`Dockerfile`, `docker/mlflow.Dockerfile`) to the created ACR, and registering a model in the deployed MLflow. This has intentionally **not** been done.
 

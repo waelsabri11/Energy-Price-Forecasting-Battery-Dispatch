@@ -109,15 +109,31 @@ def run_dispatch_backtest(
     lambdas: tuple[float, ...] = (0.5,),
     n_scen: int = 50,
     seed: int = 42,
-) -> tuple[pd.DataFrame, float]:
-    """Daily revenues (EUR) at realised prices for each strategy."""
+    eval_start: str = "2025-01-01",
+) -> tuple[pd.DataFrame, dict[str, float]]:
+    """Daily revenues (EUR) at realised prices for each strategy.
+
+    The copula correlation rho for each month is estimated only from the raw-quantile
+    predictions of earlier folds (burn-in folds included), never from the month itself.
+    """
     local = pred.index.tz_convert("Europe/Paris")
     date = np.asarray(local.normalize().tz_localize(None))
-    rho = estimate_rho(pred["y"].to_numpy(), pred[qcols].to_numpy(), date)
+    folds = pred["fold"].to_numpy()
+    rho_by_month: dict[str, float] = {}
     rows = []
     for k, (day, g) in enumerate(pred.groupby(date)):
+        fold = g["fold"].iloc[0]
+        if fold < pd.Timestamp(eval_start):
+            continue
         if len(g) < 23 or g[qcols + ["y", "naive_week"]].isna().any().any():
             continue
+        key = str(fold.date())
+        if key not in rho_by_month:
+            past = folds < fold
+            rho_by_month[key] = estimate_rho(
+                pred["y"].to_numpy()[past], pred[qcols].to_numpy()[past], date[past]
+            )
+        rho = rho_by_month[key]
         y = g["y"].to_numpy()
         row: dict[str, float] = {"date": day}
         for name, price in (
@@ -131,7 +147,7 @@ def run_dispatch_backtest(
         for lam in lambdas:
             row[f"cvar_{lam:g}"] = realised_revenue(y, *solve_schedule(sc, batt, lam=lam), batt)
         rows.append(row)
-    return pd.DataFrame(rows).set_index("date"), rho
+    return pd.DataFrame(rows).set_index("date"), rho_by_month
 
 
 def summarise(daily: pd.DataFrame, batt: Battery) -> pd.DataFrame:

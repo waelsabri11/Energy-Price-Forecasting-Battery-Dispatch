@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     end: str = "2026-10-20"
     data_dir: Path = ROOT / "data"
     seed: int = 42
+    eval_start: str = "2025-01-01"
+    first_fold: str = "2024-07-01"
+    calib_months: int = 3
 
     @property
     def raw_dir(self) -> Path:

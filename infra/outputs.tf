@@ -2,7 +2,7 @@ output "acr_login_server" {
   value = azurerm_container_registry.this.login_server
 }
 
-output "mlflow_url" {
+output "mlflow_internal_url" {
   value = "https://${azurerm_container_app.mlflow.ingress[0].fqdn}"
 }
 
