@@ -141,7 +141,7 @@ curl http://127.0.0.1:8080/forecast/latest
 scripts/k8s-down.sh
 ```
 
-CI validates the rendered manifests with kubeconform (`make k8s-check` locally).
+CI validates the rendered manifests with kubeconform (`make k8s-check` locally) and runs a smoke test on a kind cluster (probes, shared volume, NodePort and a self-signed TLS ingress); images are tagged with the git SHA.
 
 ## Azure (deployed once, then destroyed)
 

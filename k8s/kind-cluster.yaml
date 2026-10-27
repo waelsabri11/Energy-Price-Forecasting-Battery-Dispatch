@@ -3,7 +3,19 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: energy
 nodes:
   - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
     extraPortMappings:
       - containerPort: 30080 # NodePort of the API service -> http://localhost:8080
         hostPort: 8080
+        protocol: TCP
+      - containerPort: 80 # ingress-nginx -> http://energy.localtest.me:8081
+        hostPort: 8081
+        protocol: TCP
+      - containerPort: 443 # ingress-nginx -> https://energy.localtest.me:8443
+        hostPort: 8443
         protocol: TCP

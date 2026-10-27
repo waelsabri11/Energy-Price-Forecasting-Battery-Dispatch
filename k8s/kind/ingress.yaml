@@ -1,0 +1,22 @@
+# TLS ingress for the API on kind. energy.localtest.me resolves to 127.0.0.1 (public wildcard DNS),
+# the certificate is self-signed and created by scripts/k8s-up.sh (secret energy-tls, not in git).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api
+  namespace: energy
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [energy.localtest.me]
+      secretName: energy-tls
+  rules:
+    - host: energy.localtest.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port: {name: http}
