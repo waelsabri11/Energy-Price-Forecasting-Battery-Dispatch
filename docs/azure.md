@@ -18,6 +18,11 @@ Resource group, ACR (Basic), Key Vault (ENTSO-E key), Storage account with two A
 | AKS | node `Standard_D2as_v7` Ready (Kubernetes v1.36, 1.9 vCPU / 5.6 GiB allocatable); same manifests applied via the overlay [`k8s/aks`](../k8s/aks); `infer` job completed in **62 s**; API behind an Azure LoadBalancer returned the forecast (HTTP 200, 71 ms) |
 | AKS load test (60 s, 50 concurrent, `ab` over the public internet from the laptop) | 5,992 requests, 0 failed, ~100 req/s, p50 20 ms, p95 2.0 s, p99 3.0 s. The HPA did **not** scale (CPU 40-54 % of request, target 50 %). The tail latency looks network/connection-bound (pod CPU was low), I did not isolate the cause. These numbers are not comparable with the kind run |
 
+## Evidence files
+
+* AKS overview in the Azure portal (French UI; subscription ID masked): ![AKS overview](img/aks-overview.png)
+* `kubectl` output captured on the cluster (nodes, pods, service with the Azure LoadBalancer IP, HPA, job, volumes): [`evidence/aks-kubectl.txt`](evidence/aks-kubectl.txt)
+
 ## Things that did not go as planned
 
 * `Standard_B2ms` is **not allowed** for AKS on this trial subscription in `francecentral` (API error listing allowed sizes). Switched to `Standard_D2as_v7` (2 vCPU / 8 GiB, $0.107/h list price).

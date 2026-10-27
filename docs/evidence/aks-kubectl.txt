@@ -1,0 +1,40 @@
+# AKS evidence, captured 2026-10-27T12:41:08Z (cluster aks-enfc6s32i, francecentral)
+
+$ kubectl get nodes -o wide
+NAME                             STATUS   ROLES    AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION             CONTAINER-RUNTIME
+aks-system-33711155-vmss000000   Ready    <none>   33m   v1.36.4   10.224.0.4    <none>        Ubuntu 24.04.5 LTS   6.8.0-1071-azure (amd64)   containerd://2.3.7-3
+
+$ kubectl -n energy get deploy,pods,svc,hpa,cronjob,job,pvc
+NAME                     READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/api      1/1     1            1           19m
+deployment.apps/mlflow   1/1     1            1           19m
+
+NAME                          READY   STATUS      RESTARTS   AGE
+pod/api-686f8b4dcb-28f5q      1/1     Running     0          19m
+pod/infer-aks-2tqtk           0/1     Completed   0          17m
+pod/mlflow-7cd7c875c8-2xztd   1/1     Running     0          19m
+
+NAME             TYPE           CLUSTER-IP    EXTERNAL-IP    PORT(S)        AGE
+service/api      LoadBalancer   10.0.43.243   20.19.47.164   80:31542/TCP   19m
+service/mlflow   ClusterIP      10.0.100.61   <none>         5000/TCP       19m
+
+NAME                                      REFERENCE        TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/api   Deployment/api   cpu: 2%/50%   1         4         1          19m
+
+NAME                  SCHEDULE     TIMEZONE   SUSPEND   ACTIVE   LAST SCHEDULE   AGE
+cronjob.batch/infer   30 9 * * *   Etc/UTC    False     0        <none>          19m
+
+NAME                  STATUS     COMPLETIONS   DURATION   AGE
+job.batch/infer-aks   Complete   1/1           62s        17m
+
+NAME                                STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS    VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/forecasts     Bound    pvc-a9f3d3bf-3bab-4c31-a468-16b848b83170   5Gi        RWX            azurefile-csi   <unset>                 19m
+persistentvolumeclaim/mlflow-data   Bound    pvc-260c42af-19f9-4481-8155-e98315de8c42   1Gi        RWO            default         <unset>                 19m
+
+$ kubectl -n energy logs job/infer-aks | tail -3
+/app/.venv/lib/python3.12/site-packages/cvxpy/utilities/bounds.py:790: RuntimeWarning: invalid value encountered in matmul
+  new_ub = a_pos @ ub2 + a_neg @ lb2
+2026-10-27 12:24:43,182 INFO energy_forecasting.inference: wrote forecast for 2026-10-28 to /outputs
+
+$ curl -s http://<LoadBalancer IP>/forecast/latest | head -c 160
+{"delivery_date":"2026-10-28","quantiles":{"q0.05":[131.35,128.14,115.23,95.81,101.41,124.29,151.69,173.17,166.12,144.52,106.36,81.62,66.77,71.37,86.79,112.73,1
