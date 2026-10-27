@@ -129,12 +129,28 @@ Postgres is opened with the `0.0.0.0` firewall rule, which allows all Azure serv
 
 Deploying would need `terraform apply -var subscription_id=… -var entsoe_api_key=… -var postgres_admin_password=…`, pushing the two images (`Dockerfile`, `docker/mlflow.Dockerfile`) to the created ACR, and registering a model in the deployed MLflow. This has intentionally **not** been done.
 
+## Kubernetes (local, kind)
+
+The same images run on Kubernetes: manifests in [`k8s/base`](k8s/base) (kustomize) — API Deployment + Service + HPA (CPU 50 %, 1–4 replicas) with readiness/liveness probes and requests/limits, MLflow Deployment + PVC, the daily `energy infer` CronJob, and the ENTSO-E key as a Secret created from the local `.env` by the script (never committed). Verified on a local kind cluster (Kubernetes v1.34): the daily job ran in-cluster against the in-cluster MLflow registry with live ENTSO-E data and the forecast was served by the API pod. Measured load test and caveats: [`docs/kubernetes.md`](docs/kubernetes.md).
+
+```bash
+scripts/k8s-up.sh          # kind cluster, images, metrics-server, Secret from .env, manifests
+scripts/k8s-seed-model.sh  # register the local model.joblib in the in-cluster MLflow
+kubectl -n energy create job --from=cronjob/infer infer-manual
+curl http://127.0.0.1:8080/forecast/latest
+scripts/k8s-down.sh
+```
+
+CI validates the rendered manifests with kubeconform (`make k8s-check` locally).
+
 ## Layout
 
 ```
 src/energy_forecasting/   ingest, features, models, backtest, dispatch, pipeline, tracking, inference, api, cli
 tests/                    leakage, metrics/LP/CQR, API, e2e smoke (synthetic fixtures)
 infra/                    Terraform (Azure)
+k8s/, scripts/k8s-*.sh    Kubernetes manifests (kustomize) + kind helpers
+docs/kubernetes.md        local Kubernetes run: what was verified, load test
 docker/, Dockerfile, docker-compose.yml, Makefile, .github/workflows/ci.yml
 reports/                  results.md + figures
 ```

@@ -1,0 +1,23 @@
+# Forecast outputs: written by the CronJob, read by the API (both land on the same node in kind,
+# so ReadWriteOnce is enough; on a multi-node cluster use a RWX class such as Azure Files).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forecasts
+  namespace: energy
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-data
+  namespace: energy
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi

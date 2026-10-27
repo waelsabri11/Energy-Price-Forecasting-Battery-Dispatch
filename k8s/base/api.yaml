@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: energy
+  labels: {app: api}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: api}
+  template:
+    metadata:
+      labels: {app: api}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: api
+          image: energy-forecasting:local
+          imagePullPolicy: IfNotPresent
+          args: ["serve"]
+          ports:
+            - {name: http, containerPort: 8000}
+          env:
+            - {name: OUTPUT_DIR, value: /outputs}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: outputs, mountPath: /outputs, readOnly: true}
+      volumes:
+        - name: outputs
+          persistentVolumeClaim: {claimName: forecasts}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: energy
+spec:
+  type: NodePort # kind maps 30080 -> localhost:8080 (see kind-cluster.yaml)
+  selector: {app: api}
+  ports:
+    - {name: http, port: 80, targetPort: http, nodePort: 30080}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+  namespace: energy
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: api}
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 50}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 60

@@ -39,3 +39,14 @@ jobs:
       - run: terraform fmt -check -recursive
       - run: terraform init -backend=false
       - run: terraform validate
+
+  kubernetes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install kubeconform
+        run: |
+          curl -fsSL -o kc.tgz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          echo "$(curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/CHECKSUMS | grep kubeconform-linux-amd64.tar.gz | cut -d' ' -f1)  kc.tgz" | sha256sum -c -
+          tar xzf kc.tgz kubeconform && sudo mv kubeconform /usr/local/bin/
+      - run: kubectl kustomize k8s/base | kubeconform -strict -summary -kubernetes-version 1.33.0

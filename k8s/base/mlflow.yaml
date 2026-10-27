@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: energy
+  labels: {app: mlflow}
+spec:
+  replicas: 1
+  strategy: {type: Recreate} # SQLite file on a RWO volume: never two pods at once
+  selector:
+    matchLabels: {app: mlflow}
+  template:
+    metadata:
+      labels: {app: mlflow}
+    spec:
+      containers:
+        - name: mlflow
+          image: energy-mlflow:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: 5000}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - {name: data, mountPath: /mlflow}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: mlflow-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: energy
+spec:
+  selector: {app: mlflow}
+  ports:
+    - {name: http, port: 5000, targetPort: http}

@@ -7,7 +7,7 @@ else
 endif
 CLI = $(PY) energy_forecasting.cli
 
-.PHONY: setup ingest features train backtest dispatch report pipeline lint types test test-all fmt mlflow-up mlflow-down tf-check clean
+.PHONY: setup ingest features train backtest dispatch report pipeline lint types test test-all fmt mlflow-up mlflow-down tf-check k8s-check clean
 
 setup:
 	uv sync --frozen
@@ -46,6 +46,9 @@ mlflow-down:
 
 tf-check:
 	terraform -chdir=infra fmt -check -recursive && terraform -chdir=infra init -backend=false && terraform -chdir=infra validate
+
+k8s-check:
+	kubectl kustomize k8s/base | kubeconform -strict -summary -kubernetes-version 1.33.0
 
 clean:
 	rm -rf data/processed mlruns .mypy_cache .ruff_cache .pytest_cache

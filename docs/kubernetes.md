@@ -1,0 +1,47 @@
+# Running on Kubernetes (local kind cluster)
+
+Everything below was run on 2026-10-27 on a MacBook (arm64, OrbStack Docker with 12 CPUs / 15.7 GiB), kind v0.30.0, Kubernetes server v1.34.0, a single control-plane node. It is a local functional and load check, not a production benchmark.
+
+## What is deployed
+
+| Object | Purpose |
+|---|---|
+| `Deployment/api` (+ `Service` NodePort 30080 → `localhost:8080`, `HPA`) | `energy serve`; readiness/liveness on `/health`; requests 100m CPU / 128Mi, limits 500m / 512Mi; runs as uid 1000, no privilege escalation, all capabilities dropped; mounts the `forecasts` PVC read-only |
+| `Deployment/mlflow` + `PVC/mlflow-data` | MLflow 2.22.5, SQLite + proxied artifacts on the volume, `Recreate` strategy (RWO + SQLite) |
+| `CronJob/infer` | `energy infer --model-uri models:/fr-dayahead-price-quantiles/latest`, daily 09:30 UTC, `concurrencyPolicy: Forbid`; writes `latest.json` to the `forecasts` PVC |
+| `Secret/entsoe` | created by `scripts/k8s-up.sh` from the local `.env`; not in the repo |
+| `metrics-server` v0.7.2 | needed by the HPA (installed by the script with `--kubelet-insecure-tls`, which is only acceptable on kind) |
+
+Images are built locally and loaded with `kind load docker-image` (tags `energy-forecasting:local`, `energy-mlflow:local`); there is no registry.
+
+## Verified end to end
+
+1. `scripts/k8s-up.sh`: cluster, images, manifests, MLflow rolled out (1 min 42 s from nothing, including image build from cache and the metrics-server download).
+2. `scripts/k8s-seed-model.sh`: the locally trained model registered as version 1 of `fr-dayahead-price-quantiles` in the in-cluster MLflow (the trained model is not in the repo, so this step is manual).
+3. `kubectl create job --from=cronjob/infer`: the job pulled live ENTSO-E data (45-day lookback window), loaded the model from the in-cluster registry, solved the LP and wrote the forecast for 2026-10-28. Duration: 113 s (dominated by ENTSO-E requests; the cache is empty in a fresh pod).
+4. `GET /forecast/latest` through the NodePort returned HTTP 200 with the 24-hour quantile forecast and the charge/discharge schedule.
+
+Issue found by this run: the image could not write the ENTSO-E cache (`/app/data` did not exist and the non-root user could not create it), so `energy infer` failed in a container. This also affects the Azure job. Fixed in the `Dockerfile` (creates `/app/data` owned by the app user).
+
+## Load test
+
+`ab` (ApacheBench) from the same machine against `GET /forecast/latest` (a 4.1 KB JSON file read from the volume on each request), through the kind port mapping (127.0.0.1:8080 → Docker proxy → NodePort → pod). The load generator and the cluster share the same CPUs, so absolute numbers are indicative only.
+
+| Run | Requests | Failed | Req/s | p50 | p95 | p99 | max |
+|---|---|---|---|---|---|---|---|
+| Baseline, 1 pod, c=5 | 2,000 | 0 | 1,146 | 2 ms | 10 ms | 51 ms | 54 ms |
+| Load, c=50, 120 s (HPA active) | 352,963 | 0 | 2,941 | 9 ms | 58 ms | 77 ms | 1,048 ms |
+
+Autoscaling (HPA, CPU target 50 % of the 100m request, 1–4 replicas), sampled every 6 s:
+
+* Idle: 2 % CPU, 1 replica.
+* Under load: the HPA saw 269 % and asked for 4 replicas in one step about 35 s after the load started (metrics-server scrape plus HPA sync interval); event `New size: 4` at 10:21:21 UTC. CPU stayed at ~495 % of request (i.e. ~5x the request, 4 pods at their 500m limit), so the 4-replica cap, not the target, was binding.
+* After the load stopped, scale-down took about 1 min: `New size: 2` at 10:24:21, `New size: 1` at 10:24:51 (stabilisation window set to 60 s).
+* No failed request in either run. The 1,048 ms maximum is a single outlier during the scale-up window; it was not investigated.
+
+## Limitations
+
+* `ReadWriteOnce` shared between the API and the CronJob works because kind has one node. A multi-node cluster needs a ReadWriteMany class (e.g. Azure Files) or object storage.
+* MLflow is a single replica on SQLite with no authentication; it is only reachable inside the cluster.
+* The API reads and parses the JSON on every request (no cache); a single uvicorn worker per pod.
+* Not tested: node failure, rolling updates under load, the CronJob firing on its own schedule (only a manual job from the same template was run).

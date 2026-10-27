@@ -9,7 +9,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --frozen --no-dev
 ENV PATH="/app/.venv/bin:$PATH" OUTPUT_DIR=/outputs
-RUN useradd -m app && mkdir /outputs && chown app /outputs
+RUN useradd -m app && mkdir /outputs /app/data && chown app /outputs /app/data
 USER app
 # default: daily batch job (Container Apps job); override with `energy serve` for the API
 ENTRYPOINT ["energy"]

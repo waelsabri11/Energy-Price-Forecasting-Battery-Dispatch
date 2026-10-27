@@ -1,0 +1,46 @@
+# Daily D+1 forecast + battery schedule. 09:30 UTC = before the 12:00 CET day-ahead gate closure.
+# ENTSOE_API_KEY comes from the `entsoe` Secret, created from the local .env by scripts/k8s-up.sh.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: infer
+  namespace: energy
+spec:
+  schedule: "30 9 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: infer
+              image: energy-forecasting:local
+              imagePullPolicy: IfNotPresent
+              args: ["infer", "--model-uri", "models:/fr-dayahead-price-quantiles/latest"]
+              env:
+                - name: ENTSOE_API_KEY
+                  valueFrom:
+                    secretKeyRef: {name: entsoe, key: ENTSOE_API_KEY}
+                - {name: MLFLOW_TRACKING_URI, value: "http://mlflow:5000"}
+                - {name: OUTPUT_DIR, value: /outputs}
+              resources:
+                requests: {cpu: 500m, memory: 1Gi}
+                limits: {memory: 2Gi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - {name: outputs, mountPath: /outputs}
+          volumes:
+            - name: outputs
+              persistentVolumeClaim: {claimName: forecasts}
