@@ -1,6 +1,6 @@
 # Energy price forecasting & battery dispatch (France)
 
-Probabilistic **day-ahead electricity price forecasting** for the French bidding zone (ENTSO-E data), followed by **LP battery dispatch** that turns the forecast distribution into a bid schedule — with an MLOps skeleton around it (MLflow tracking + model registry, pandera-validated pipeline stages, Docker, CI, Terraform for Azure, applied once for a 2-day demo).
+Probabilistic **day-ahead electricity price forecasting** for the French bidding zone (ENTSO-E data), followed by **LP battery dispatch** that turns the forecast distribution into a bid schedule — with an MLOps skeleton around it (MLflow tracking + model registry, pandera-validated pipeline stages, Docker, Kubernetes, CI, Terraform on Azure).
 
 ## Problem
 
@@ -28,7 +28,7 @@ flowchart LR
     INF --> OUT[forecast + schedule for D+1]
 ```
 
-Azure target (Terraform in [`infra/`](infra), applied once for a 2-day demo, see below): ACR, Key Vault (ENTSO-E key), Storage (Azure Files), PostgreSQL Flexible Server (MLflow DB), Container Apps environment with an **internal-only** MLflow app (no authentication, so it is not exposed publicly), a **daily Container Apps Job** running `energy infer` before gate closure, and a scale-to-zero read-only API.
+Azure target (Terraform in [`infra/`](infra)): ACR, Key Vault (ENTSO-E key), Storage (Azure Files), PostgreSQL Flexible Server (MLflow DB), Container Apps environment with an **internal-only** MLflow app (no authentication, so it is not exposed publicly), a **daily Container Apps Job** running `energy infer` before gate closure, and a scale-to-zero read-only API.
 
 ## Data
 
@@ -129,23 +129,23 @@ Postgres is opened with the `0.0.0.0` firewall rule, which allows all Azure serv
 
 Deploying would need `terraform apply -var subscription_id=… -var entsoe_api_key=… -var postgres_admin_password=…`, pushing the two images (`Dockerfile`, `docker/mlflow.Dockerfile`) to the created ACR, and registering a model in the deployed MLflow. This was done once for the 2-day demo documented in `docs/azure.md`.
 
-## Kubernetes (local, kind)
+## Kubernetes
 
-The same images run on Kubernetes: manifests in [`k8s/base`](k8s/base) (kustomize) — API Deployment + Service + HPA (CPU 50 %, 1–4 replicas) with readiness/liveness probes and requests/limits, MLflow Deployment + PVC, the daily `energy infer` CronJob, and the ENTSO-E key as a Secret created from the local `.env` by the script (never committed). Verified on a local kind cluster (Kubernetes v1.34): the daily job ran in-cluster against the in-cluster MLflow registry with live ENTSO-E data and the forecast was served by the API pod. Measured load test and caveats: [`docs/kubernetes.md`](docs/kubernetes.md).
+Kustomize manifests in [`k8s/`](k8s): API (Deployment, Service, HPA 1–4 replicas, probes, resource limits, non-root), MLflow with a persistent volume, the daily `energy infer` CronJob, the ENTSO-E key as a Secret, TLS ingress. Runs on a local **kind** cluster (`scripts/k8s-up.sh`) and on **AKS** through the `k8s/aks` overlay; images are tagged with the git SHA. CI validates the manifests (kubeconform) and runs a kind smoke test (probes, shared volume, NodePort, TLS ingress).
+
+On kind the daily job produced the next-day forecast in 113 s from live ENTSO-E data; under a 120 s load test (50 concurrent) the API served 353k requests with no failures (p95 58 ms) and the HPA scaled 1 → 4 pods in about 35 s. Details: [`docs/kubernetes.md`](docs/kubernetes.md).
 
 ```bash
-scripts/k8s-up.sh          # kind cluster, images, metrics-server, Secret from .env, manifests
-scripts/k8s-seed-model.sh  # register the local model.joblib in the in-cluster MLflow
+scripts/k8s-up.sh && scripts/k8s-seed-model.sh   # cluster, images, manifests, model
 kubectl -n energy create job --from=cronjob/infer infer-manual
 curl http://127.0.0.1:8080/forecast/latest
-scripts/k8s-down.sh
 ```
 
-CI validates the rendered manifests with kubeconform (`make k8s-check` locally) and runs a smoke test on a kind cluster (probes, shared volume, NodePort and a self-signed TLS ingress); images are tagged with the git SHA.
+## Azure
 
-## Azure (deployed once, then destroyed)
+Deployed with the Terraform in `infra/`: Container Apps (daily job, scale-to-zero API, internal MLflow on PostgreSQL), ACR, Key Vault, Azure Files, plus a 1-node AKS cluster. The daily job ran against the Azure MLflow in 2 min 28 s and the public API served the forecast (~29 ms warm, from Paris). Timings and notes: [`docs/azure.md`](docs/azure.md); cost estimate: [`docs/azure-cost-estimate.md`](docs/azure-cost-estimate.md). The stack was torn down after the run.
 
-The Terraform in `infra/` was applied on a free-trial subscription for a 2-day demo (see [`docs/azure.md`](docs/azure.md) for timings, what failed, and teardown; costs in [`docs/azure-cost-estimate.md`](docs/azure-cost-estimate.md)). Verified on Azure: the daily Container Apps Job ran `energy infer` against the Azure-hosted MLflow (2 min 28 s), the public scale-to-zero API served the forecast (20.6 s cold start, ~29 ms warm median from a Paris laptop), and the same Kubernetes manifests ran on a 1-node AKS cluster (overlay `k8s/aks`). The deployment is not kept running.
+![AKS](docs/img/aks-overview.png)
 
 ## Layout
 
