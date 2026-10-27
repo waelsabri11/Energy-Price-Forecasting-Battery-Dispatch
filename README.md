@@ -1,6 +1,6 @@
 # Energy price forecasting & battery dispatch (France)
 
-Probabilistic **day-ahead electricity price forecasting** for the French bidding zone (ENTSO-E data), followed by **LP battery dispatch** that turns the forecast distribution into a bid schedule — with an MLOps skeleton around it (MLflow tracking + model registry, pandera-validated pipeline stages, Docker, CI, Terraform for Azure).
+Probabilistic **day-ahead electricity price forecasting** for the French bidding zone (ENTSO-E data), followed by **LP battery dispatch** that turns the forecast distribution into a bid schedule — with an MLOps skeleton around it (MLflow tracking + model registry, pandera-validated pipeline stages, Docker, CI, Terraform for Azure, applied once for a 2-day demo).
 
 ## Problem
 
@@ -28,7 +28,7 @@ flowchart LR
     INF --> OUT[forecast + schedule for D+1]
 ```
 
-Azure target (Terraform in [`infra/`](infra), **validated but never applied**): ACR, Key Vault (ENTSO-E key), Storage (Azure Files), PostgreSQL Flexible Server (MLflow DB), Container Apps environment with an **internal-only** MLflow app (no authentication, so it is not exposed publicly), a **daily Container Apps Job** running `energy infer` before gate closure, and a scale-to-zero read-only API.
+Azure target (Terraform in [`infra/`](infra), applied once for a 2-day demo, see below): ACR, Key Vault (ENTSO-E key), Storage (Azure Files), PostgreSQL Flexible Server (MLflow DB), Container Apps environment with an **internal-only** MLflow app (no authentication, so it is not exposed publicly), a **daily Container Apps Job** running `energy infer` before gate closure, and a scale-to-zero read-only API.
 
 ## Data
 
@@ -119,7 +119,7 @@ make test-all lint types
 
 macOS note: LightGBM needs OpenMP. Either `brew install libomp`, or rely on the Makefile, which points `DYLD_LIBRARY_PATH` at the libomp bundled with scikit-learn.
 
-Terraform (validate only — nothing is created):
+Terraform validation:
 
 ```bash
 terraform -chdir=infra init -backend=false && terraform -chdir=infra validate
@@ -127,7 +127,7 @@ terraform -chdir=infra init -backend=false && terraform -chdir=infra validate
 
 Postgres is opened with the `0.0.0.0` firewall rule, which allows all Azure services: acceptable for a demo; production should use VNet integration / a private endpoint. The Terraform state contains secrets (ENTSO-E key, DB password): use a remote encrypted backend (e.g. an Azure Storage account with encryption and restricted access) rather than local state.
 
-Deploying would need `terraform apply -var subscription_id=… -var entsoe_api_key=… -var postgres_admin_password=…`, pushing the two images (`Dockerfile`, `docker/mlflow.Dockerfile`) to the created ACR, and registering a model in the deployed MLflow. This has intentionally **not** been done.
+Deploying would need `terraform apply -var subscription_id=… -var entsoe_api_key=… -var postgres_admin_password=…`, pushing the two images (`Dockerfile`, `docker/mlflow.Dockerfile`) to the created ACR, and registering a model in the deployed MLflow. This was done once for the 2-day demo documented in `docs/azure.md`.
 
 ## Kubernetes (local, kind)
 
@@ -142,6 +142,10 @@ scripts/k8s-down.sh
 ```
 
 CI validates the rendered manifests with kubeconform (`make k8s-check` locally).
+
+## Azure (deployed once, then destroyed)
+
+The Terraform in `infra/` was applied on a free-trial subscription for a 2-day demo (see [`docs/azure.md`](docs/azure.md) for timings, what failed, and teardown; costs in [`docs/azure-cost-estimate.md`](docs/azure-cost-estimate.md)). Verified on Azure: the daily Container Apps Job ran `energy infer` against the Azure-hosted MLflow (2 min 28 s), the public scale-to-zero API served the forecast (20.6 s cold start, ~29 ms warm median from a Paris laptop), and the same Kubernetes manifests ran on a 1-node AKS cluster (overlay `k8s/aks`). The deployment is not kept running.
 
 ## Layout
 

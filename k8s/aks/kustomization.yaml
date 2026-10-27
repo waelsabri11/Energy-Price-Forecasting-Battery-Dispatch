@@ -1,0 +1,23 @@
+# AKS overlay: images from the ACR created by infra/ (kubelet identity has AcrPull),
+# ReadWriteMany forecast volume on Azure Files, public LoadBalancer for the API.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+images:
+  - name: energy-forecasting
+    newName: acrenfc6s32i.azurecr.io/energy-forecasting # ACR name = `terraform output acr_login_server`
+    newTag: latest
+  - name: energy-mlflow
+    newName: acrenfc6s32i.azurecr.io/energy-mlflow
+    newTag: latest
+patches:
+  - target: {kind: PersistentVolumeClaim, name: forecasts}
+    patch: |-
+      - {op: add, path: /spec/storageClassName, value: azurefile-csi}
+      - {op: replace, path: /spec/accessModes, value: [ReadWriteMany]}
+      - {op: replace, path: /spec/resources/requests/storage, value: 5Gi}
+  - target: {kind: Service, name: api}
+    patch: |-
+      - {op: replace, path: /spec/type, value: LoadBalancer}
+      - {op: remove, path: /spec/ports/0/nodePort}

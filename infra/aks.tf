@@ -8,7 +8,7 @@ variable "enable_aks" {
 
 variable "aks_node_size" {
   type        = string
-  default     = "Standard_B2ms"
+  default     = "Standard_D2as_v7"
   description = "VM size of the single AKS node."
 }
 
