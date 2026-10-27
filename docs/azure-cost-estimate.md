@@ -37,3 +37,10 @@ The trial credit expires after 30 days. If the subscription is not upgraded to p
 * `terraform` is not installed (no Homebrew): I would download the pinned HashiCorp 1.9.x binary and verify its checksum.
 * The deployed MLflow has no authentication and stays internal-only; the API is public by design (read-only forecast).
 * Needs from Wael at apply time: the ENTSO-E key (read from `.env`, passed as a Terraform variable, ends in Terraform state locally; the state file is git-ignored) and a generated Postgres admin password.
+
+## Decision (2026-10-27): variant A + 1-node AKS, 2 days, then destroy
+
+* AKS node: one `Standard_B2ms` (2 vCPU / 8 GiB, $0.0944/h queried), free control-plane tier, no autoscaler, 64 GB OS disk. Optional in Terraform (`enable_aks`, default false).
+* Cost guards: free-trial subscription with `spendingLimit: On` (read from the subscription via the API), a $10 budget `energy-demo-10usd` with e-mail alerts at 50/80/100 % (alerts only, they do not stop spending), Log Analytics daily ingestion cap of 1 GB, MLflow and API limited to 1 replica.
+* Expected credit use over the 2 days: about $9.5 (A ~$2 + node $4.5 + public IP, load balancer and disk ~$3, the last two from memory and not queried).
+* `terraform plan` (AKS enabled): 24 to add, 0 to change, 0 to destroy.

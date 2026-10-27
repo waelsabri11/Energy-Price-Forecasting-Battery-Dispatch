@@ -128,6 +128,7 @@ resource "azurerm_log_analytics_workspace" "this" {
   location            = azurerm_resource_group.this.location
   sku                 = "PerGB2018"
   retention_in_days   = 30
+  daily_quota_gb      = 1 # hard cap on ingestion (cost guard)
   tags                = var.tags
 }
 
