@@ -1,6 +1,6 @@
 # Running on Azure (free-trial subscription, 2-day demo)
 
-Deployed on 2026-10-27 with the Terraform in [`infra/`](../infra) (apply started 11:20 UTC), region `francecentral`, a free-trial subscription (spending limit on, $10 budget alert at 50/80/100 %). The demo is meant to be **destroyed 48 h after the apply** (deadline 2026-10-29 11:20 UTC), so the URLs below are not permanent. Cost figures: [`azure-cost-estimate.md`](azure-cost-estimate.md) (estimates from list prices; I did not get actual billed cost, the Cost Management API rate-limited my query and billing data lags).
+Deployed on 2026-10-27 with the Terraform in [`infra/`](../infra) (apply started 11:20 UTC), region `francecentral`, a free-trial subscription (spending limit on, $10 budget alert at 50/80/100 %). **Everything was destroyed on 2026-10-27 at 13:02 UTC** (`terraform destroy`: 24 resources destroyed; afterwards only Azure's automatic `NetworkWatcherRG` remained), about 1 h 42 min after the apply started, so the URLs below no longer exist. Cost figures: [`azure-cost-estimate.md`](azure-cost-estimate.md) (estimates from list prices; I did not obtain the actual billed cost: Cost Management returned HTTP 429 / no data and billing data lags; the portal showed 0 costs incurred and 175.99 EUR credit shortly before the destroy).
 
 ## What was created (`terraform apply`, 24 resources)
 
