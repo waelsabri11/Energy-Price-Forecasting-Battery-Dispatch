@@ -48,7 +48,7 @@ tf-check:
 	terraform -chdir=infra fmt -check -recursive && terraform -chdir=infra init -backend=false && terraform -chdir=infra validate
 
 k8s-check:
-	kubectl kustomize k8s/base | kubeconform -strict -summary -kubernetes-version 1.33.0
+	for d in base aks; do kubectl kustomize k8s/$$d | kubeconform -strict -summary -kubernetes-version 1.33.0; done
 
 clean:
 	rm -rf data/processed mlruns .mypy_cache .ruff_cache .pytest_cache
